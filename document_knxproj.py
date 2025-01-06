@@ -38,8 +38,11 @@ print("Last Modified:", formatted_dt)
 print("Tool Version:", project["info"]["tool_version"])
 print("XKNXProject Version:", project["info"]["xknxproject_version"])
 
+
 # Helper function to recursively parse locations and collect device data
-def extract_device_data(location, building=None, floor=None, room=None, distribution_board=None):
+def extract_device_data(
+    location, building=None, floor=None, room=None, distribution_board=None
+):
     """Recursively parse locations and collect device data."""
     device_info = {}
     if location.get("type") == "Building":
@@ -57,14 +60,17 @@ def extract_device_data(location, building=None, floor=None, room=None, distribu
             "Building": building,
             "Floor": floor,
             "Room": room,
-            "DistributionBoard": distribution_board
+            "DistributionBoard": distribution_board,
         }
 
     # Recurse into subspaces
     for subspace in location.get("spaces", {}).values():
-        device_info.update(extract_device_data(subspace, building, floor, room, distribution_board))
+        device_info.update(
+            extract_device_data(subspace, building, floor, room, distribution_board)
+        )
 
     return device_info
+
 
 # Extract data starting from root locations
 all_devices = {}
@@ -106,9 +112,37 @@ with open(FILE_DEVICES, "w", newline="", encoding="utf-8") as csvfile:
                 "building": all_devices[value["individual_address"]]["Building"],
                 "floor": all_devices[value["individual_address"]]["Floor"],
                 "room": all_devices[value["individual_address"]]["Room"],
-                "distribution_board": all_devices[value["individual_address"]]["DistributionBoard"],
+                "distribution_board": all_devices[value["individual_address"]][
+                    "DistributionBoard"
+                ],
             }
         )
+
+
+# Recursive function to extract group ranges hierarchy as a dictionary
+def extract_group_ranges_dict(group_range, parent_address=""):
+    """Recursive function to extract group ranges hierarchy as a dictionary."""
+    hierarchy = {}
+    for address, details in group_range.items():
+        full_address = f"{address}".strip("/")
+
+        # Add the current level entry
+        hierarchy[full_address] = details.get("name", "Unknown")
+
+        # Add third-level group addresses with name from group_addresses
+        for group_address in details.get("group_addresses", []):
+            hierarchy[group_address] = project["group_addresses"][group_address]["name"]
+
+        # Recurse into nested group ranges
+        hierarchy.update(
+            extract_group_ranges_dict(details.get("group_ranges", {}), full_address)
+        )
+    return hierarchy
+
+
+# Extract data into a dictionary
+group_ranges = project.get("group_ranges", {})
+hierarchy_dict = extract_group_ranges_dict(group_ranges)
 
 # Export Group Addresses to CSV
 with open(FILE_GROUP_ADDRESSES, "w", newline="", encoding="utf-8") as csvfile:
@@ -126,17 +160,17 @@ with open(FILE_GROUP_ADDRESSES, "w", newline="", encoding="utf-8") as csvfile:
     )
     group_addresses_csv.writeheader()
 
-    for group_address, value in project["group_addresses"].items():
-        if value["dpt"] is not None:
-            FORMATTED_DPT = (
-                str(value["dpt"]["main"]) + "." + str(f"{value['dpt']['sub']:04}")
-            )
+    for address, name in hierarchy_dict.items():
+        if address.count("/") == 2:
+            if project["group_addresses"][address]["dpt"] is not None:
+                dpt = (
+                    str(project["group_addresses"][address]["dpt"]["main"])
+                    + "."
+                    + str(f"{project['group_addresses'][address]['dpt']['sub']:04}")
+                )
+            else:
+                dpt = ""
+
         else:
-            FORMATTED_DPT = "null"
-        group_addresses_csv.writerow(
-            {
-                "address": value["address"],
-                "name": value["name"],
-                "dpt": FORMATTED_DPT,
-            }
-        )
+            dpt = ""
+        group_addresses_csv.writerow({"address": address, "name": name, "dpt": dpt})
