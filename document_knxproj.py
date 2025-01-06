@@ -38,6 +38,39 @@ print("Last Modified:", formatted_dt)
 print("Tool Version:", project["info"]["tool_version"])
 print("XKNXProject Version:", project["info"]["xknxproject_version"])
 
+# Helper function to recursively parse locations and collect device data
+def extract_device_data(location, building=None, floor=None, room=None, distribution_board=None):
+    """Recursively parse locations and collect device data."""
+    device_info = {}
+    if location.get("type") == "Building":
+        building = location.get("name")
+    elif location.get("type") == "Floor":
+        floor = location.get("name")
+    elif location.get("type") == "Room":
+        room = location.get("name")
+    elif location.get("type") == "DistributionBoard":
+        distribution_board = location.get("name")
+
+    # Collect devices
+    for device in location.get("devices", []):
+        device_info[device] = {
+            "Building": building,
+            "Floor": floor,
+            "Room": room,
+            "DistributionBoard": distribution_board
+        }
+
+    # Recurse into subspaces
+    for subspace in location.get("spaces", {}).values():
+        device_info.update(extract_device_data(subspace, building, floor, room, distribution_board))
+
+    return device_info
+
+# Extract data starting from root locations
+all_devices = {}
+for b, building_data in project.get("locations", {}).items():
+    all_devices.update(extract_device_data(building_data))
+
 # Export Devices to CSV
 with open(FILE_DEVICES, "w", newline="", encoding="utf-8") as csvfile:
     fieldnames = [
@@ -47,6 +80,10 @@ with open(FILE_DEVICES, "w", newline="", encoding="utf-8") as csvfile:
         "name",
         "hardware_name",
         "order_number",
+        "building",
+        "floor",
+        "room",
+        "distribution_board",
     ]
     devices_csv = csv.DictWriter(
         csvfile,
@@ -57,7 +94,7 @@ with open(FILE_DEVICES, "w", newline="", encoding="utf-8") as csvfile:
     )
     devices_csv.writeheader()
 
-    for device, value in project["devices"].items():
+    for d, value in project["devices"].items():
         devices_csv.writerow(
             {
                 "individual_address": value["individual_address"],
@@ -66,6 +103,10 @@ with open(FILE_DEVICES, "w", newline="", encoding="utf-8") as csvfile:
                 "name": value["name"],
                 "hardware_name": value["hardware_name"],
                 "order_number": value["order_number"],
+                "building": all_devices[value["individual_address"]]["Building"],
+                "floor": all_devices[value["individual_address"]]["Floor"],
+                "room": all_devices[value["individual_address"]]["Room"],
+                "distribution_board": all_devices[value["individual_address"]]["DistributionBoard"],
             }
         )
 
