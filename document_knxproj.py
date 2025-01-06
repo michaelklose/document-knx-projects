@@ -13,6 +13,7 @@ PROJECT_LANGUAGE = "de-DE"  # optional
 FILE_JSON = "project.json"
 FILE_DEVICES = "devices.csv"
 FILE_GROUP_ADDRESSES = "group_addresses.csv"
+FILE_GROUP_ADDRESSES_ETS = "group_addresses_ets.csv"
 
 knxproj: XKNXProj = XKNXProj(
     path=PROJECT_FILE,
@@ -120,7 +121,7 @@ with open(FILE_DEVICES, "w", newline="", encoding="utf-8") as csvfile:
 
 
 # Recursive function to extract group ranges hierarchy as a dictionary
-def extract_group_ranges_dict(group_range, parent_address=""):
+def extract_group_ranges_dict(group_range):
     """Recursive function to extract group ranges hierarchy as a dictionary."""
     hierarchy = {}
     for address, details in group_range.items():
@@ -135,9 +136,12 @@ def extract_group_ranges_dict(group_range, parent_address=""):
 
         # Recurse into nested group ranges
         hierarchy.update(
-            extract_group_ranges_dict(details.get("group_ranges", {}), full_address)
+            extract_group_ranges_dict(details.get("group_ranges", {}))
         )
-    return hierarchy
+
+    return dict(
+        sorted(hierarchy.items(), key=lambda item: [int(x) for x in item[0].split("/")])
+    )
 
 
 # Extract data into a dictionary
@@ -163,14 +167,67 @@ with open(FILE_GROUP_ADDRESSES, "w", newline="", encoding="utf-8") as csvfile:
     for address, name in hierarchy_dict.items():
         if address.count("/") == 2:
             if project["group_addresses"][address]["dpt"] is not None:
-                dpt = (
+                DPT = (
                     str(project["group_addresses"][address]["dpt"]["main"])
                     + "."
                     + str(f"{project['group_addresses'][address]['dpt']['sub']:04}")
                 )
             else:
-                dpt = ""
+                DPT = ""
 
         else:
-            dpt = ""
-        group_addresses_csv.writerow({"address": address, "name": name, "dpt": dpt})
+            DPT = ""
+        group_addresses_csv.writerow({"address": address, "name": name, "dpt": DPT})
+
+# Export Group Addresses to CSV for ETS Import
+with open(FILE_GROUP_ADDRESSES_ETS, "w", newline="", encoding="cp1252") as csvfile:
+    fieldnames = [
+        "Main",
+        "Middle",
+        "Sub",
+        "Address",
+        "Central",
+        "Unfiltered",
+        "Description",
+        "DatapointType",
+        "Security",
+    ]
+
+    group_addresses_ets_csv = csv.DictWriter(
+        csvfile,
+        fieldnames=fieldnames,
+        delimiter=";",
+        quotechar='"',
+        quoting=csv.QUOTE_ALL,
+    )
+
+    group_addresses_ets_csv.writeheader()
+
+    for address, name in hierarchy_dict.items():
+        if address.count("/") == 0:
+            group_addresses_ets_csv.writerow(
+                {"Main": name, "Address": (address + "/-/-"), "Security": "Auto"}
+            )
+        elif address.count("/") == 1:
+            group_addresses_ets_csv.writerow(
+                {"Middle": name, "Address": (address + "/-"), "Security": "Auto"}
+            )
+        elif address.count("/") == 2:
+            if project["group_addresses"][address]["dpt"] is not None:
+                group_addresses_ets_csv.writerow(
+                    {
+                        "Sub": name,
+                        "Address": address,
+                        "DatapointType": (
+                            "DPST-"
+                            + str(project["group_addresses"][address]["dpt"]["main"])
+                            + "-"
+                            + str(project["group_addresses"][address]["dpt"]["sub"])
+                        ),
+                        "Security": "Auto",
+                    }
+                )
+            else:
+                group_addresses_ets_csv.writerow(
+                    {"Sub": name, "Address": address, "Security": "Auto"}
+                )
